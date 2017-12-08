@@ -13,13 +13,13 @@ loggerHolder.setLogger = function (logger) {
     this.logger = logger;
 }.bind(loggerHolder);
 
-/*loggerHolder.setLogger({
+loggerHolder.setLogger({
     log: ()=>{},
     debug: function(){
         return console.log.apply(console, arguments)
     },
     error: ()=>{}
-});*/
-loggerHolder.setLogger(console);
+});
+//loggerHolder.setLogger(console);
 
 module.exports = loggerHolder;

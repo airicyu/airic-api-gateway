@@ -291,6 +291,10 @@ function inflateExpressApp(app) {
             operationId: currOperationId
         } = resourceMatcher(req, openApiSpec);
         
+        if (!currOperationId || currOperationId.length === 0){
+            return res.sendStatus(404);
+        }
+        
         let checkedBucketKeys = [];
         let checkingError = null;
         try {
