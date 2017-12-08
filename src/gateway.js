@@ -19,6 +19,11 @@ const proxy = require('./proxy/proxy');
 const { getTimer } = require('./timer');
 const keyCache = require('./key/key-cache');
 
+const defaultYamlGatewayConfigSource = require('./config/gateway-config-source').defaultYamlGatewayConfigSource;
+const memoryQuotaService = require('./quota/memory-quota-service').quotaService;
+const redisQuotaService = require('./quota/redis-quota-service').quotaService;
+const mongoQuotaService = require('./quota/mongo-quota-service').quotaService;
+
 function buildError(codeMessage, e, extraAttributesMap) {
     let error = {
         code: codeMessage.code,
@@ -51,6 +56,27 @@ const ERROR_CODE = {
         message: 'API_KEY_VALIDATION_ERROR:'
     }
 };
+
+const apiGateway = {
+    _app: null,
+    registerLogger: null,
+    getLogger: null,
+    registerQuotaService: null,
+    registerStatSyncAgent: null,
+    registerGatewayConfigSource: null,
+    inflateExpressApp: null,
+    run: null,
+    implementations: {
+        gatewayConfigSource: {
+            defaultYamlGatewayConfigSource
+        },
+        quotaService: {
+            memoryQuotaService: memoryQuotaService,
+            redisQuotaService: redisQuotaService,
+            mongoQuotaService: mongoQuotaService
+        }
+    }
+}
 
 async function _validateApiKey({ gatewayConfig, apiKey }) {
     if (!apiKey){
@@ -213,27 +239,27 @@ async function _countQuota({ bucketKeys }) {
     }).catch(err => loggerHolder.getLogger().log(err));
 }
 
-function registerLogger(logger) {
+apiGateway.registerLogger = function(logger) {
     loggerHolder.setLogger(logger);
-}
+}.bind(apiGateway);
 
-function getLogger() {
+apiGateway.getLogger = function() {
     return loggerHolder.getLogger();
-}
+}.bind(apiGateway);
 
-function registerGatewayConfigSource(gatewayConfigSource) {
+apiGateway.registerGatewayConfigSource = function(gatewayConfigSource) {
     gatewayConfigHolder.setGatewayConfigSource(gatewayConfigSource);
-}
+}.bind(apiGateway);
 
-function registerQuotaService(quotaService) {
+apiGateway.registerQuotaService = function(quotaService) {
     quotaServiceHolder.setQuotaService(quotaService);
-}
+}.bind(apiGateway);
 
-function registerStatSyncAgent(statSyncAgent) {
+apiGateway.registerStatSyncAgent = function(statSyncAgent) {
     statBuffer.setStatSyncAgent(statSyncAgent);
-}
+}.bind(apiGateway);
 
-function inflateExpressApp(app) {
+apiGateway.inflateExpressApp = function(app) {
     this._app = app || express();
     app = this._app
 
@@ -247,10 +273,6 @@ function inflateExpressApp(app) {
     app.get('/api-gateway-healthcheck', function (req, res) {
         res.send('OK');
     });
-
-    /*app.get('/api-config', function (req, res) {
-        res.send(apiConfigHolder);
-    });*/
 
     app.all('/*', async function (req, res) {
         let gatewayProcessTimer = getTimer('gatewayProcessTimer').start();
@@ -391,9 +413,9 @@ function inflateExpressApp(app) {
         }
     });
 
-}
+}.bind(apiGateway);
 
-async function run() {
+apiGateway.run = async function() {
     if (!this._app) {
         this.inflateExpressApp();
     }
@@ -423,43 +445,7 @@ async function run() {
         });
     });
 
-}
-
-const apiGateway = {
-    _app: null,
-    registerLogger: null,
-    getLogger: null,
-    registerQuotaService: null,
-    registerStatSyncAgent: null,
-    registerGatewayConfigSource: null,
-    inflateExpressApp: null,
-    run: null,
-}
-
-apiGateway.registerLogger = registerLogger.bind(apiGateway);
-apiGateway.getLogger = getLogger.bind(apiGateway);
-apiGateway.registerQuotaService = registerQuotaService.bind(apiGateway);
-apiGateway.registerStatSyncAgent = registerStatSyncAgent.bind(apiGateway);
-apiGateway.registerGatewayConfigSource = registerGatewayConfigSource.bind(apiGateway);
-apiGateway.inflateExpressApp = inflateExpressApp.bind(apiGateway);
-apiGateway.run = run.bind(apiGateway);
+}.bind(apiGateway);
 
 
-const defaultYamlGatewayConfigSource = require('./config/gateway-config-source').defaultYamlGatewayConfigSource;
-const memoryQuotaService = require('./quota/memory-quota-service').quotaService;
-const redisQuotaService = require('./quota/redis-quota-service').quotaService;
-const mongoQuotaService = require('./quota/mongo-quota-service').quotaService;
-
-module.exports = {
-    apiGateway,
-    implementations: {
-        gatewayConfigSource: {
-            defaultYamlGatewayConfigSource
-        },
-        quotaService: {
-            memoryQuotaService: memoryQuotaService,
-            redisQuotaService: redisQuotaService,
-            mongoQuotaService: mongoQuotaService
-        }
-    }
-}
+module.exports = apiGateway
