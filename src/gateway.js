@@ -416,8 +416,9 @@ apiGateway.inflateExpressApp = function(app) {
 }.bind(apiGateway);
 
 apiGateway.run = async function() {
-    if (!this._app) {
-        this.inflateExpressApp();
+    let self = this;
+    if (!self._app) {
+        self.inflateExpressApp();
     }
 
     await gatewayConfigHolder.loadGatewayConfig();
@@ -431,15 +432,17 @@ apiGateway.run = async function() {
     loggerHolder.getLogger().log('api-gateway starting with config: ', gatewayConfig);
 
     await apiConfigHolder.pullConfig(gatewayConfig);
-    setInterval(apiConfigHolder.pullConfig, gatewayConfig['pull-api-config-interval-second'] * 1000, gatewayConfig);
+    self.pullConfigInterval = setInterval(apiConfigHolder.pullConfig, gatewayConfig['pull-api-config-interval-second'] * 1000, gatewayConfig);
 
     if (gatewayConfig['enable-stat']) {
         statBuffer.swapBuffer();
-        setInterval(statBuffer.syncStat, Math.min(10*1000, Math.max(3*1000, gatewayConfig['sync-api-stat-interval-second'] * 1000 / 10)), gatewayConfig);
+        self.syncStatInterval = setInterval(statBuffer.syncStat, Math.min(10*1000, Math.max(3*1000, gatewayConfig['sync-api-stat-interval-second'] * 1000 / 10)), gatewayConfig);
     }
 
     return new Promise((resolve) => {
-        this._app.listen(gatewayConfig['port'], function () {
+        self._app.listen(gatewayConfig['port'], function () {
+            clearInterval(self.pullConfigInterval);
+            clearInterval(self.syncStatInterval);
             loggerHolder.getLogger().log('api-gateway listening on port 3000!');
             resolve();
         });
