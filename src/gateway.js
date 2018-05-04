@@ -215,11 +215,11 @@ async function _checkQuota({ appId, clientId, appConfig, clientConfig, clientPla
                         quotaExceedDisplayInfo.quotaCountEndTime = quotaBucket.extractEndTimeFromBucketKey(quotaExceedInfo.bucketKey);
                         return resolve([false, quotaExceedDisplayInfo]);
                     } else {
-                        let keyCache = {};
-                        let checkedBucketKeys = bucketQuotas.map(_ => _.bucketKey).filter(function (item) {
-                            return keyCache.hasOwnProperty(item) ? false : (keyCache[item] = true);
+                        let uniqueKeysMap = {};
+                        let uniqueCheckedBucketKeys = bucketQuotas.map(_ => _.bucketKey).filter(function (item) {
+                            return uniqueKeysMap.hasOwnProperty(item) ? false : (uniqueKeysMap[item] = true);
                         });
-                        return resolve([true, checkedBucketKeys]);
+                        return resolve([true, uniqueCheckedBucketKeys]);
                     }
                 } catch (e) {
                     return reject(e);
@@ -259,6 +259,26 @@ apiGateway.registerStatSyncAgent = function(statSyncAgent) {
     statBuffer.setStatSyncAgent(statSyncAgent);
 }.bind(apiGateway);
 
+let getApiKeyPayload = (req) => {
+    let apiKey = req.header('api-key');
+    let apiKeyPayload = {};
+    
+    if (apiKey){
+        try{
+            let decodedApiKey = jwt.decode(apiKey, {
+                complete: true
+            });
+            if (decodedApiKey && decodedApiKey.payload){
+                apiKeyPayload = decodedApiKey.payload;
+                return [true, apiKeyPayload];
+            }
+        } catch(e){
+        }
+    }
+
+    return [false, null];
+}
+
 apiGateway.inflateExpressApp = function(app) {
     this._app = app || express();
     app = this._app
@@ -284,21 +304,17 @@ apiGateway.inflateExpressApp = function(app) {
         let path = req.originalUrl;
 
         let apiConfig = apiConfigHolder.get();
-        let apiKey = req.header('api-key');
-        if (!apiKey){
+        //let apiKey = req.header('api-key');
+        let [decodeKeySuccess, apiKeyPayload] = getApiKeyPayload(req);
+        
+        if (!decodeKeySuccess){
             return res.status(401).send('Invalid API key');
         }
-
-        let decodedApiKey = jwt.decode(apiKey, {
-            complete: true
-        });
-        let apiKeyPayload = decodedApiKey.payload;
 
         let appId = apiKeyPayload.appId;
         let clientId = apiKeyPayload.clientId;
 
         let appConfig = apiConfig.apps && apiConfig.apps[appId] || {};
-        let appQuotaRule = appConfig && appConfig.quotaRule
 
         let clientConfig = apiConfig.clients && apiConfig.clients[clientId] || {};
         let clientPlans = clientConfig && clientConfig.plans && clientConfig.plans[appId] || [];
@@ -349,19 +365,18 @@ apiGateway.inflateExpressApp = function(app) {
             ]).then(([validateApiKeySuccess, checkQuotaResult]) => {
                 let [checkQuotaSuccess, checkQuotaResultData] = checkQuotaResult;
 
-                if (validateApiKeySuccess && checkQuotaSuccess) {
-                    let _checkedBucketKeys = checkQuotaResultData;
-                    let keyCache = {};
-                    let uniqueBucketKeys = _checkedBucketKeys.filter(function (item) {
-                        return keyCache.hasOwnProperty(item) ? false : (keyCache[item] = true);
-                    });
-                    return Promise.resolve(_checkedBucketKeys);
-                } else if (!validateApiKeySuccess) {
+                if (!validateApiKeySuccess) {
                     return Promise.reject(buildError(ERROR_CODE.API_KEY_INVALID));
                 } else if (!checkQuotaSuccess) {
                     let quotaExceedDisplayInfo = checkQuotaResultData;
                     return Promise.reject(buildError(ERROR_CODE.QUOTA_EXCEED_LIMITATION_ERROR, undefined, {quotaExceedDisplayInfo}));
                 }
+
+                let uniqueKeysMap = {};
+                let uniqueCheckedBucketKeys = checkQuotaResultData.filter(function (item) {
+                    return uniqueKeysMap.hasOwnProperty(item) ? false : (uniqueKeysMap[item] = true);
+                });
+                return Promise.resolve(uniqueCheckedBucketKeys);
             });
         } catch (rejectReason) {
             loggerHolder.getLogger().error(rejectReason);
@@ -400,16 +415,14 @@ apiGateway.inflateExpressApp = function(app) {
         gatewayProcessTimer.stop();
         
         if (Math.random()<0.00001){
-            loggerHolder.getLogger().debug
-            ({
+            loggerHolder.getLogger().debug({
                 gatewayProcessTimer: gatewayProcessTimer.getInfoString(),
                 gatewayResponseTimer: gatewayResponseTimer.getInfoString(),
                 gatewayProxyTimer: gatewayProxyTimer.getInfoString(),
                 validateApiKeyProcessTimer: validateApiKeyProcessTimer.getInfoString(),
                 checkQuotaProcessTimer: checkQuotaProcessTimer.getInfoString()
             });
-            loggerHolder.getLogger().debug
-            (`gatewayResponseTimeExcludeProxyTime: ${gatewayResponseTimer.getDuration() - gatewayProxyTimer.getDuration()}ms`);
+            loggerHolder.getLogger().debug(`gatewayResponseTimeExcludeProxyTime: ${gatewayResponseTimer.getDuration() - gatewayProxyTimer.getDuration()}ms`);
         }
     });
 
