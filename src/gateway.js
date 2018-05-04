@@ -24,7 +24,7 @@ const memoryQuotaService = require('./quota/memory-quota-service').quotaService;
 const redisQuotaService = require('./quota/redis-quota-service').quotaService;
 const mongoQuotaService = require('./quota/mongo-quota-service').quotaService;
 
-function buildError(codeMessage, e, extraAttributesMap) {
+const buildError = (codeMessage, e, extraAttributesMap) => {
     let error = {
         code: codeMessage.code,
         message: codeMessage.message,
@@ -78,7 +78,7 @@ const apiGateway = {
     }
 }
 
-async function _validateApiKey({ gatewayConfig, apiKey }) {
+const _validateApiKey = async ({ gatewayConfig, apiKey }) => {
     if (!apiKey) {
         return Promise.reject(buildError(ERROR_CODE.API_KEY_INVALID));
     }
@@ -99,7 +99,7 @@ async function _validateApiKey({ gatewayConfig, apiKey }) {
             body: {
                 key: apiKey
             }
-        }, function (error, response, body) {
+        }, (error, response, body) => {
             if (error) {
                 return reject(error);
             } else if (response.statusCode !== 200) {
@@ -125,7 +125,7 @@ async function _validateApiKey({ gatewayConfig, apiKey }) {
     });
 }
 
-async function _checkQuota({ appId, clientId, appConfig, clientConfig, clientPlans, currTags, currOperationId }) {
+const _checkQuota = async ({ appId, clientId, appConfig, clientConfig, clientPlans, currTags, currOperationId }) => {
     let timestamp = moment().unix();
 
     let appQuotaRule = appConfig && appConfig.quotaRule
@@ -216,7 +216,7 @@ async function _checkQuota({ appId, clientId, appConfig, clientConfig, clientPla
                         return resolve([false, quotaExceedDisplayInfo]);
                     } else {
                         let uniqueKeysMap = {};
-                        let uniqueCheckedBucketKeys = bucketQuotas.map(_ => _.bucketKey).filter(function (item) {
+                        let uniqueCheckedBucketKeys = bucketQuotas.map(_ => _.bucketKey).filter((item) => {
                             return uniqueKeysMap.hasOwnProperty(item) ? false : (uniqueKeysMap[item] = true);
                         });
                         return resolve([true, uniqueCheckedBucketKeys]);
@@ -231,36 +231,39 @@ async function _checkQuota({ appId, clientId, appConfig, clientConfig, clientPla
     return [true, []];
 }
 
-async function _countQuota({ bucketKeys }) {
-    return quotaServiceHolder.getQuotaService().countQuotas(bucketKeys).then(() => {
-        return quotaServiceHolder.getQuotaService().getBucketKeysCount(bucketKeys)
-    }).then((getQuotaResult) => {
+const _countQuota = async ({ bucketKeys }) => {
+    try{
+        await quotaServiceHolder.getQuotaService().countQuotas(bucketKeys);
+        let getQuotaResult = quotaServiceHolder.getQuotaService().getBucketKeysCount(bucketKeys);
         loggerHolder.getLogger().log(getQuotaResult);
-    }).catch(err => loggerHolder.getLogger().log(err));
+    } catch (err){
+        loggerHolder.getLogger().log(err);
+    }
+
+    return;
 }
 
-apiGateway.registerLogger = function (logger) {
+apiGateway.registerLogger = (logger) => {
     loggerHolder.setLogger(logger);
-}.bind(apiGateway);
+};
 
-apiGateway.getLogger = function () {
+apiGateway.getLogger = () => {
     return loggerHolder.getLogger();
-}.bind(apiGateway);
+};
 
-apiGateway.registerGatewayConfigSource = function (gatewayConfigSource) {
+apiGateway.registerGatewayConfigSource = (gatewayConfigSource) => {
     gatewayConfigHolder.setGatewayConfigSource(gatewayConfigSource);
-}.bind(apiGateway);
+};
 
-apiGateway.registerQuotaService = function (quotaService) {
+apiGateway.registerQuotaService = (quotaService) => {
     quotaServiceHolder.setQuotaService(quotaService);
-}.bind(apiGateway);
+};
 
-apiGateway.registerStatSyncAgent = function (statSyncAgent) {
+apiGateway.registerStatSyncAgent = (statSyncAgent) => {
     statBuffer.setStatSyncAgent(statSyncAgent);
-}.bind(apiGateway);
+};
 
-let getApiKeyPayload = (req) => {
-    let apiKey = req.header('api-key');
+let getApiKeyPayload = (apiKey) => {
     let apiKeyPayload = {};
 
     if (apiKey) {
@@ -278,22 +281,22 @@ let getApiKeyPayload = (req) => {
     return [false, null];
 }
 
-apiGateway.inflateExpressApp = function (app) {
-    this._app = app || express();
-    app = this._app
+apiGateway.inflateExpressApp = (app) => {
+    apiGateway._app = app || express();
+    app = apiGateway._app
 
     app.use(bodyParser.raw({
         max: '50mb',
-        type: function (req) {
+        type: (req) => {
             return true;
         }
     }))
 
-    app.get('/api-gateway-healthcheck', function (req, res) {
+    app.get('/api-gateway-healthcheck', (req, res) => {
         res.send('OK');
     });
 
-    app.all('/*', async function (req, res) {
+    app.all('/*', async (req, res) => {
         let gatewayProcessTimer = getTimer('gatewayProcessTimer').start();
         let gatewayResponseTimer = getTimer('gatewayResponseTimer').start();
         let validateApiKeyProcessTimer = getTimer('validateApiKeyProcessTimer');
@@ -303,8 +306,8 @@ apiGateway.inflateExpressApp = function (app) {
         let path = req.originalUrl;
 
         let apiConfig = apiConfigHolder.get();
-        //let apiKey = req.header('api-key');
-        let [decodeKeySuccess, apiKeyPayload] = getApiKeyPayload(req);
+        let apiKey = req.header('api-key');
+        let [decodeKeySuccess, apiKeyPayload] = getApiKeyPayload(apiKey);
 
         if (!decodeKeySuccess) {
             return res.status(401).send('Invalid API key');
@@ -335,46 +338,45 @@ apiGateway.inflateExpressApp = function (app) {
         let checkedBucketKeys = [];
         let checkingError = null;
         try {
-            checkedBucketKeys = await Promise.all([
-                new Promise((resolve, reject) => {
+            let [validateApiKeySuccess, checkQuotaResult] = await Promise.all([
+                new Promise( async (resolve, reject) => {
                     validateApiKeyProcessTimer.start();
-                    return _validateApiKey({ gatewayConfig, apiKey }).catch((e) => {
-                        return Promise.reject(buildError(ERROR_CODE.API_KEY_VALIDATION_ERROR, e));
-                    }).then((result) => {
-                        validateApiKeyProcessTimer.stop();
+                    try {
+                        let result = await _validateApiKey({ gatewayConfig, apiKey });
                         return resolve(result);
-                    }).catch((reason) => {
-                        validateApiKeyProcessTimer.stop();
+                    } catch (e){
+                        let reason = buildError(ERROR_CODE.API_KEY_VALIDATION_ERROR, e);
                         return reject(reason);
-                    })
+                    } finally {
+                        validateApiKeyProcessTimer.stop();
+                    }                   
                 }),
                 new Promise((resolve, reject) => {
                     checkQuotaProcessTimer.start();
-                    return _checkQuota({ appId, clientId, appConfig, clientConfig, clientPlans, currTags, currOperationId }).catch((e) => {
-                        return Promise.reject(buildError(ERROR_CODE.QUOTA_VALIDATION_ERROR, e));
-                    }).then((results) => {
-                        checkQuotaProcessTimer.stop();
+                    try {
+                        let results = _checkQuota({ appId, clientId, appConfig, clientConfig, clientPlans, currTags, currOperationId });
                         return resolve(results);
-                    }).catch((reason) => {
-                        checkQuotaProcessTimer.stop();
+                    } catch (e){
+                        let reason = buildError(ERROR_CODE.QUOTA_VALIDATION_ERROR, e);
                         return reject(reason);
-                    })
+                    } finally {
+                        checkQuotaProcessTimer.stop();
+                    }
                 })
-            ]).then(([validateApiKeySuccess, checkQuotaResult]) => {
-                let [checkQuotaSuccess, checkQuotaResultData] = checkQuotaResult;
+            ]);
+            
+            let [checkQuotaSuccess, checkQuotaResultData] = checkQuotaResult;
+            if (!validateApiKeySuccess) {
+                throw buildError(ERROR_CODE.API_KEY_INVALID);
+            } else if (!checkQuotaSuccess) {
+                let quotaExceedDisplayInfo = checkQuotaResultData;
+                throw buildError(ERROR_CODE.QUOTA_EXCEED_LIMITATION_ERROR, undefined, { quotaExceedDisplayInfo });
+            }
 
-                if (!validateApiKeySuccess) {
-                    return Promise.reject(buildError(ERROR_CODE.API_KEY_INVALID));
-                } else if (!checkQuotaSuccess) {
-                    let quotaExceedDisplayInfo = checkQuotaResultData;
-                    return Promise.reject(buildError(ERROR_CODE.QUOTA_EXCEED_LIMITATION_ERROR, undefined, { quotaExceedDisplayInfo }));
-                }
-
-                let uniqueKeysMap = {};
-                let uniqueCheckedBucketKeys = checkQuotaResultData.filter(function (item) {
-                    return uniqueKeysMap.hasOwnProperty(item) ? false : (uniqueKeysMap[item] = true);
-                });
-                return Promise.resolve(uniqueCheckedBucketKeys);
+            let uniqueKeysMap = {};
+            //filter to make only contain unique values
+            checkedBucketKeys = checkQuotaResultData.filter((item) => {
+                return uniqueKeysMap.hasOwnProperty(item) ? false : (uniqueKeysMap[item] = true);
             });
         } catch (rejectReason) {
             loggerHolder.getLogger().error(rejectReason);
@@ -424,10 +426,10 @@ apiGateway.inflateExpressApp = function (app) {
         }
     });
 
-}.bind(apiGateway);
+};
 
-apiGateway.run = async function () {
-    let self = this;
+apiGateway.run = async () => {
+    let self = apiGateway;
     if (!self._app) {
         self.inflateExpressApp();
     }
@@ -451,7 +453,7 @@ apiGateway.run = async function () {
     }
 
     return new Promise((resolve) => {
-        self._app.listen(gatewayConfig['port'], function () {
+        self._app.listen(gatewayConfig['port'], () => {
             clearInterval(self.pullConfigInterval);
             clearInterval(self.syncStatInterval);
             loggerHolder.getLogger().log('api-gateway listening on port 3000!');
@@ -459,7 +461,7 @@ apiGateway.run = async function () {
         });
     });
 
-}.bind(apiGateway);
+};
 
 
 module.exports = apiGateway
