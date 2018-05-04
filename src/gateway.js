@@ -79,15 +79,15 @@ const apiGateway = {
 }
 
 async function _validateApiKey({ gatewayConfig, apiKey }) {
-    if (!apiKey){
+    if (!apiKey) {
         return Promise.reject(buildError(ERROR_CODE.API_KEY_INVALID));
     }
 
     let keyCacheResult = keyCache.get(apiKey);
-    if (keyCacheResult){
-        if (!keyCacheResult.v){
+    if (keyCacheResult) {
+        if (!keyCacheResult.v) {
             return false;
-        } else if (Date.now() - keyCacheResult.t <= gatewayConfig['key-cache-max-second'] * 1000){
+        } else if (Date.now() - keyCacheResult.t <= gatewayConfig['key-cache-max-second'] * 1000) {
             return true;
         }
     }
@@ -149,7 +149,7 @@ async function _checkQuota({ appId, clientId, appConfig, clientConfig, clientPla
                         bucketQuotas.push({
                             quota: appQuota.quota,
                             bucketKey,
-                            planMeta : {
+                            planMeta: {
                                 name: planName,
                                 type: 'app',
                             }
@@ -167,7 +167,7 @@ async function _checkQuota({ appId, clientId, appConfig, clientConfig, clientPla
                             bucketQuotas.push({
                                 quota: tagQuota.quota,
                                 bucketKey,
-                                planMeta : {
+                                planMeta: {
                                     name: planName,
                                     type: 'tag',
                                     target: currTag
@@ -186,7 +186,7 @@ async function _checkQuota({ appId, clientId, appConfig, clientConfig, clientPla
                         bucketQuotas.push({
                             quota: operationQuota.quota,
                             bucketKey,
-                            planMeta : {
+                            planMeta: {
                                 name: planName,
                                 type: 'operation id',
                                 target: currOperationId
@@ -197,17 +197,17 @@ async function _checkQuota({ appId, clientId, appConfig, clientConfig, clientPla
             }
         }
 
-        return new Promise(async(resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             if (bucketQuotas && bucketQuotas.length > 0) {
                 try {
                     let [validateResult, quotaExceedInfo] = await quotaServiceHolder.getQuotaService().validateQuotas(bucketQuotas);
                     if (!validateResult) {
                         let planMeta = quotaExceedInfo.planMeta;
                         let quotaExceedDisplayInfo = {};
-                        
+
                         quotaExceedDisplayInfo.planName = planMeta.name;
                         quotaExceedDisplayInfo.quotaTargetType = planMeta.type;
-                        if (planMeta.type === 'tag' || planMeta.type === 'operation id'){
+                        if (planMeta.type === 'tag' || planMeta.type === 'operation id') {
                             quotaExceedDisplayInfo.quotaTarget = planMeta.target;
                         }
                         quotaExceedDisplayInfo.quotaWindow = quotaBucket.extractBucketInfo(quotaExceedInfo.bucketKey).bucketType;
@@ -239,47 +239,46 @@ async function _countQuota({ bucketKeys }) {
     }).catch(err => loggerHolder.getLogger().log(err));
 }
 
-apiGateway.registerLogger = function(logger) {
+apiGateway.registerLogger = function (logger) {
     loggerHolder.setLogger(logger);
 }.bind(apiGateway);
 
-apiGateway.getLogger = function() {
+apiGateway.getLogger = function () {
     return loggerHolder.getLogger();
 }.bind(apiGateway);
 
-apiGateway.registerGatewayConfigSource = function(gatewayConfigSource) {
+apiGateway.registerGatewayConfigSource = function (gatewayConfigSource) {
     gatewayConfigHolder.setGatewayConfigSource(gatewayConfigSource);
 }.bind(apiGateway);
 
-apiGateway.registerQuotaService = function(quotaService) {
+apiGateway.registerQuotaService = function (quotaService) {
     quotaServiceHolder.setQuotaService(quotaService);
 }.bind(apiGateway);
 
-apiGateway.registerStatSyncAgent = function(statSyncAgent) {
+apiGateway.registerStatSyncAgent = function (statSyncAgent) {
     statBuffer.setStatSyncAgent(statSyncAgent);
 }.bind(apiGateway);
 
 let getApiKeyPayload = (req) => {
     let apiKey = req.header('api-key');
     let apiKeyPayload = {};
-    
-    if (apiKey){
-        try{
+
+    if (apiKey) {
+        try {
             let decodedApiKey = jwt.decode(apiKey, {
                 complete: true
             });
-            if (decodedApiKey && decodedApiKey.payload){
+            if (decodedApiKey && decodedApiKey.payload) {
                 apiKeyPayload = decodedApiKey.payload;
                 return [true, apiKeyPayload];
             }
-        } catch(e){
-        }
+        } catch (e) {}
     }
 
     return [false, null];
 }
 
-apiGateway.inflateExpressApp = function(app) {
+apiGateway.inflateExpressApp = function (app) {
     this._app = app || express();
     app = this._app
 
@@ -299,15 +298,15 @@ apiGateway.inflateExpressApp = function(app) {
         let gatewayResponseTimer = getTimer('gatewayResponseTimer').start();
         let validateApiKeyProcessTimer = getTimer('validateApiKeyProcessTimer');
         let checkQuotaProcessTimer = getTimer('checkQuotaProcessTimer');
-        
+
         let gatewayConfig = gatewayConfigHolder.getGatewayConfig();
         let path = req.originalUrl;
 
         let apiConfig = apiConfigHolder.get();
         //let apiKey = req.header('api-key');
         let [decodeKeySuccess, apiKeyPayload] = getApiKeyPayload(req);
-        
-        if (!decodeKeySuccess){
+
+        if (!decodeKeySuccess) {
             return res.status(401).send('Invalid API key');
         }
 
@@ -323,41 +322,40 @@ apiGateway.inflateExpressApp = function(app) {
         if (!openApiSpec) {
             return res.sendStatus(404);
         }
-        
+
         let {
             tags: currTags,
             operationId: currOperationId
         } = resourceMatcher(req, openApiSpec);
-        
-        if (!currOperationId || currOperationId.length === 0){
+
+        if (!currOperationId || currOperationId.length === 0) {
             return res.sendStatus(404);
         }
-        
+
         let checkedBucketKeys = [];
         let checkingError = null;
         try {
             checkedBucketKeys = await Promise.all([
-                new Promise((resolve, reject)=>{
+                new Promise((resolve, reject) => {
                     validateApiKeyProcessTimer.start();
                     return _validateApiKey({ gatewayConfig, apiKey }).catch((e) => {
                         return Promise.reject(buildError(ERROR_CODE.API_KEY_VALIDATION_ERROR, e));
-                    }).then((result)=>{
+                    }).then((result) => {
                         validateApiKeyProcessTimer.stop();
                         return resolve(result);
-                    }).catch((reason)=>{
+                    }).catch((reason) => {
                         validateApiKeyProcessTimer.stop();
                         return reject(reason);
                     })
-                })
-                ,
-                new Promise((resolve, reject)=>{
+                }),
+                new Promise((resolve, reject) => {
                     checkQuotaProcessTimer.start();
                     return _checkQuota({ appId, clientId, appConfig, clientConfig, clientPlans, currTags, currOperationId }).catch((e) => {
                         return Promise.reject(buildError(ERROR_CODE.QUOTA_VALIDATION_ERROR, e));
-                    }).then((results)=>{
+                    }).then((results) => {
                         checkQuotaProcessTimer.stop();
                         return resolve(results);
-                    }).catch((reason)=>{
+                    }).catch((reason) => {
                         checkQuotaProcessTimer.stop();
                         return reject(reason);
                     })
@@ -369,7 +367,7 @@ apiGateway.inflateExpressApp = function(app) {
                     return Promise.reject(buildError(ERROR_CODE.API_KEY_INVALID));
                 } else if (!checkQuotaSuccess) {
                     let quotaExceedDisplayInfo = checkQuotaResultData;
-                    return Promise.reject(buildError(ERROR_CODE.QUOTA_EXCEED_LIMITATION_ERROR, undefined, {quotaExceedDisplayInfo}));
+                    return Promise.reject(buildError(ERROR_CODE.QUOTA_EXCEED_LIMITATION_ERROR, undefined, { quotaExceedDisplayInfo }));
                 }
 
                 let uniqueKeysMap = {};
@@ -395,7 +393,7 @@ apiGateway.inflateExpressApp = function(app) {
                 return res.sendStatus(500);
             }
         }
-        
+
         let targetUrl = '';
         targetUrl += openApiSpec.schemes[0] + "://" + openApiSpec.host + path;
 
@@ -403,7 +401,7 @@ apiGateway.inflateExpressApp = function(app) {
         await proxy(targetUrl, req, res, gatewayConfig);
         gatewayProxyTimer.stop();
         gatewayResponseTimer.stop();
-        
+
         if (checkedBucketKeys && checkedBucketKeys.length > 0) {
             //we don't await this promise because we want to do it async in parallel
             _countQuota({ bucketKeys: checkedBucketKeys }).then();
@@ -413,8 +411,8 @@ apiGateway.inflateExpressApp = function(app) {
             statBuffer.recordStatToBuffer({ bucketType: gatewayConfig['stat-bucket-type'], appId, opId: currOperationId, clientId, timestamp: moment().unix() });
         }
         gatewayProcessTimer.stop();
-        
-        if (Math.random()<0.00001){
+
+        if (Math.random() < 0.00001) {
             loggerHolder.getLogger().debug({
                 gatewayProcessTimer: gatewayProcessTimer.getInfoString(),
                 gatewayResponseTimer: gatewayResponseTimer.getInfoString(),
@@ -428,7 +426,7 @@ apiGateway.inflateExpressApp = function(app) {
 
 }.bind(apiGateway);
 
-apiGateway.run = async function() {
+apiGateway.run = async function () {
     let self = this;
     if (!self._app) {
         self.inflateExpressApp();
@@ -449,7 +447,7 @@ apiGateway.run = async function() {
 
     if (gatewayConfig['enable-stat']) {
         statBuffer.swapBuffer();
-        self.syncStatInterval = setInterval(statBuffer.syncStat, Math.min(10*1000, Math.max(3*1000, gatewayConfig['sync-api-stat-interval-second'] * 1000 / 10)), gatewayConfig);
+        self.syncStatInterval = setInterval(statBuffer.syncStat, Math.min(10 * 1000, Math.max(3 * 1000, gatewayConfig['sync-api-stat-interval-second'] * 1000 / 10)), gatewayConfig);
     }
 
     return new Promise((resolve) => {
